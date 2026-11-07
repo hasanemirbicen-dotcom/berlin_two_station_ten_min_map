@@ -129,6 +129,10 @@ const VIEWS = {
 };
 
 function fit(b, w, h, pad) {
+  // on short or narrow screens the UI padding can exceed the canvas; keep at least half of it for the map
+  w = Math.max(w, 1); h = Math.max(h, 1);
+  if (pad.t + pad.b > h * .5) { const f = h * .5 / (pad.t + pad.b); pad = { ...pad, t: pad.t * f, b: pad.b * f }; }
+  if (pad.l + pad.r > w * .5) { const f = w * .5 / (pad.l + pad.r); pad = { ...pad, l: pad.l * f, r: pad.r * f }; }
   const s = Math.min((w - pad.l - pad.r) / (b.x1 - b.x0), (h - pad.t - pad.b) / (b.y1 - b.y0));
   const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
   // offset so the box is centred inside the padded area
