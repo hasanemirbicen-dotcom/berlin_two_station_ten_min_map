@@ -1,0 +1,407 @@
+<title>Ten Minutes on Foot</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one full-bleed night map on canvas; title top-left, clock top-right, legend + controls along the bottom edge. Single dark look by choice. */
+:root {
+  --ground: #0e1116;
+  --ink: #e9e4da;
+  --muted: #8b8f98;
+  --line: #2a2f39;
+  --panel: rgba(14,17,22,.78);
+  --hot: #ffc23d;
+  --display: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--body); overflow: hidden; }
+#map { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.ui { position: fixed; inset: 0; pointer-events: none;
+  padding-top: max(18px, env(safe-area-inset-top, 0px)); padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; justify-content: space-between; gap: 12px; }
+.ui::before { content: ""; position: absolute; inset: 0; z-index: -1;
+  background: linear-gradient(to bottom, rgba(14,17,22,.85), rgba(14,17,22,0) 30%, rgba(14,17,22,0) 72%, rgba(14,17,22,.85)); }
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.eyebrow { font: 500 11px/1.3 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--hot); }
+h1 { font: 800 clamp(34px, 6vw, 68px)/.9 var(--display); margin: 6px 0 8px; letter-spacing: .01em; text-transform: uppercase; text-wrap: balance; }
+.lede { max-width: 46ch; font-size: 13.5px; line-height: 1.5; color: #c9c5bd; margin: 0; }
+.lede b { color: var(--ink); font-weight: 500; }
+.clock { text-align: right; }
+.clock .t { font: 500 clamp(40px, 7vw, 76px)/1 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.clock .u { font: 400 11px/1.4 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.legend { font: 400 11px/1.4 var(--mono); color: var(--muted); display: grid; gap: 6px; }
+.ramp { display: grid; grid-template-columns: repeat(10, 22px); height: 8px; border-radius: 1px; overflow: hidden; }
+.ticks { display: grid; grid-template-columns: repeat(10, 22px); font-variant-numeric: tabular-nums; }
+.ticks span:last-child { text-align: right; }
+.key { display: flex; align-items: center; gap: 8px; }
+.ring { width: 16px; height: 16px; border: 1px dashed #b9b4aa; border-radius: 50%; flex: none; }
+.credit { color: #6c707a; }
+.stats { display: flex; gap: 22px; flex-wrap: wrap; transition: opacity .8s; }
+.stat .n { font: 600 28px/1 var(--display); letter-spacing: .02em; }
+.stat .l { font: 400 11px/1.4 var(--mono); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; pointer-events: auto; }
+.controls button { font: 500 12px/1 var(--mono); letter-spacing: .06em; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line); padding: 9px 12px; border-radius: 3px; cursor: pointer; }
+.controls button:hover { border-color: #555b67; }
+.controls button[aria-pressed="true"] { border-color: var(--hot); color: var(--hot); }
+.controls button:focus-visible { outline: 2px solid var(--hot); outline-offset: 2px; }
+.right { display: grid; gap: 12px; justify-items: end; }
+@media (max-width: 640px) {
+  .lede { font-size: 12.5px; }
+  .clock { text-align: left; }
+  .right { justify-items: start; }
+  .stats { gap: 16px; }
+}
+</style>
+
+<canvas id="map" aria-label="Animated map of Berlin showing streets reachable within a 10 minute walk from Alexanderplatz and Zoologischer Garten stations"></canvas>
+<div class="ui">
+  <div class="top">
+    <div>
+      <div class="eyebrow">#30DayMapChallenge · Day 7 · 10 minute map</div>
+      <h1>Ten Minutes on Foot</h1>
+      <p class="lede">Every street you can reach walking 10 minutes from Berlin's two big S-Bahn hubs, <b>Alexanderplatz</b> in the east and <b>Zoologischer Garten</b> in the west, measured along the real street network at 5&nbsp;km/h.</p>
+    </div>
+    <div class="clock" aria-live="off">
+      <div class="t" id="clock">0:00</div>
+      <div class="u">minutes walked</div>
+    </div>
+  </div>
+  <div class="bottom">
+    <div class="legend">
+      <div>Walking time from the station</div>
+      <div class="ramp" id="ramp"></div>
+      <div class="ticks"><span>0</span><span></span><span></span><span></span><span>5</span><span></span><span></span><span></span><span></span><span>10 min</span></div>
+      <div class="key"><span class="ring"></span>833 m as the crow flies (10 min with no streets in the way)</div>
+      <div class="credit">Street data © OpenStreetMap contributors (ODbL)</div>
+    </div>
+    <div class="right">
+      <div class="stats" id="stats" style="opacity:0"></div>
+      <div class="controls">
+        <button id="v-both" aria-pressed="true">Both</button>
+        <button id="v-zoo" aria-pressed="false">Zoo</button>
+        <button id="v-alex" aria-pressed="false">Alexanderplatz</button>
+        <button id="replay">↻ Replay</button>
+        <button id="rec" hidden>● Save video</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>/*DATA*/</script>
+<script>
+(() => {
+const M = window.MAPDATA;
+const LIMIT = M.limit, SPEED = M.speed;
+const RAMP = ["#fff3b0","#ffe066","#ffc23d","#ff9f2e","#ff7a33","#f55a45","#e3415a","#c9306e","#a72680","#7f1f8c"];
+const C = { ground:"#0e1116", water:"#12283a", waterLine:"#1a3a52", green:"#13201a", minor:"#20252e", mid:"#2c323d", major:"#3a414e", rail:"#4a4452", label:"#5d636e", ink:"#e9e4da" };
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+document.getElementById("ramp").innerHTML = RAMP.map(c => `<span style="background:${c}"></span>`).join("");
+
+// precompute segment lengths and reach stats
+for (const st of M.stations) {
+  const s = st.segs, n = s.length / 6;
+  st.len = new Float32Array(n);
+  let far = 0;
+  for (let i = 0; i < n; i++) {
+    const k = i * 6;
+    st.len[i] = Math.hypot(s[k+2]-s[k], s[k+3]-s[k+1]);
+    if (s[k+4] <= LIMIT) far = Math.max(far, Math.hypot(s[k]-st.x, s[k+1]-st.y));
+    if (s[k+5] <= LIMIT) far = Math.max(far, Math.hypot(s[k+2]-st.x, s[k+3]-st.y));
+  }
+  st.far = far;
+}
+const [alex, zoo] = [M.stations.find(s => s.id === "alex"), M.stations.find(s => s.id === "zoo")];
+document.getElementById("stats").innerHTML = [zoo, alex].map(st =>
+  `<div class="stat"><div class="n">${st.km} km</div><div class="l">${st.id === "zoo" ? "Zoo" : "Alex"}: paths reached<br>furthest point ${Math.round(st.far)} m away</div></div>`).join("");
+
+const R = 1000;
+const VIEWS = {
+  both: { x0: zoo.x - R, x1: alex.x + R, y0: Math.min(zoo.y, alex.y) - R, y1: Math.max(zoo.y, alex.y) + R },
+  zoo:  { x0: zoo.x - R, x1: zoo.x + R, y0: zoo.y - R, y1: zoo.y + R },
+  alex: { x0: alex.x - R, x1: alex.x + R, y0: alex.y - R, y1: alex.y + R },
+};
+
+function fit(b, w, h, pad) {
+  const s = Math.min((w - pad.l - pad.r) / (b.x1 - b.x0), (h - pad.t - pad.b) / (b.y1 - b.y0));
+  const cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+  // offset so the box is centred inside the padded area
+  return { x: cx - ((pad.l - pad.r) / 2) / s, y: cy - ((pad.t - pad.b) / 2) / s, s };
+}
+
+// ---------- view object (screen or recording canvas)
+function makeView(canvas, w, h, dpr, padFn) {
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  const bg = document.createElement("canvas"); bg.width = canvas.width; bg.height = canvas.height;
+  return { canvas, ctx: canvas.getContext("2d"), w, h, dpr, padFn, bg, bgKey: "", cam: null };
+}
+
+function trace(ctx, arr, cam, w, h) {
+  const s = cam.s, ox = w / 2 - cam.x * s, oy = h / 2 - cam.y * s;
+  ctx.moveTo(arr[0] * s + ox, arr[1] * s + oy);
+  for (let i = 2; i < arr.length; i += 2) ctx.lineTo(arr[i] * s + ox, arr[i+1] * s + oy);
+}
+
+function drawBg(v) {
+  const key = `${v.cam.x.toFixed(1)},${v.cam.y.toFixed(1)},${v.cam.s.toFixed(5)},${v.w},${v.h}`;
+  if (key === v.bgKey) return;
+  v.bgKey = key;
+  const g = v.bg.getContext("2d"), cam = v.cam, w = v.w, h = v.h;
+  g.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+  g.fillStyle = C.ground; g.fillRect(0, 0, w, h);
+  const z = Math.max(1, Math.min(3, cam.s / 0.12));
+  const fillSet = (list, col) => { g.beginPath(); for (const a of list) { trace(g, a, cam, w, h); g.closePath(); } g.fillStyle = col; g.fill("evenodd"); };
+  const strokeSet = (list, col, lw, dash) => { g.beginPath(); for (const a of list) trace(g, a, cam, w, h); g.strokeStyle = col; g.lineWidth = lw; g.setLineDash(dash || []); g.stroke(); g.setLineDash([]); };
+  g.lineJoin = "round"; g.lineCap = "round";
+  fillSet(M.bg.green, C.green);
+  fillSet(M.bg.water, C.water);
+  strokeSet(M.bg.waterline, C.waterLine, 1.2 * z);
+  strokeSet(M.bg.minor, C.minor, .45 * z);
+  strokeSet(M.bg.mid, C.mid, .8 * z);
+  strokeSet(M.bg.major, C.major, 1.5 * z);
+  strokeSet(M.bg.rail, C.rail, 1.1 * z, [3 * z, 2.5 * z]);
+  g.font = `italic 400 ${Math.round(10 + z * 1.5)}px "IBM Plex Sans", sans-serif`;
+  g.fillStyle = C.label; g.textAlign = "center"; g.textBaseline = "middle";
+  const s = cam.s, ox = w / 2 - cam.x * s, oy = h / 2 - cam.y * s;
+  for (const L of M.labels) g.fillText(L.t, L.x * s + ox, L.y * s + oy);
+}
+
+function drawIso(ctx, st, D, cam, w, h, z) {
+  const s = cam.s, ox = w / 2 - cam.x * s, oy = h / 2 - cam.y * s;
+  const seg = st.segs, n = st.len.length;
+  const paths = RAMP.map(() => new Path2D());
+  const tips = new Path2D();
+  for (let i = 0; i < n; i++) {
+    const k = i * 6, da = seg[k+4], db = seg[k+5];
+    if (D <= da && D <= db) continue;
+    const L = st.len[i] || 0.01;
+    const ax = seg[k] * s + ox, ay = seg[k+1] * s + oy, bx = seg[k+2] * s + ox, by = seg[k+3] * s + oy;
+    const la = Math.max(0, Math.min(L, D - da)), lb = Math.max(0, Math.min(L, D - db));
+    if (la + lb >= L) {
+      const bin = Math.min(9, Math.floor(((Math.min(da, db) + Math.max(da, db)) / 2 + L / 4) / SPEED) );
+      paths[Math.max(0, bin)].moveTo(ax, ay); paths[Math.max(0, bin)].lineTo(bx, by);
+      continue;
+    }
+    if (la > 0) {
+      const f = la / L, tx = ax + (bx - ax) * f, ty = ay + (by - ay) * f;
+      const p = paths[Math.min(9, Math.floor((da + la / 2) / SPEED))];
+      p.moveTo(ax, ay); p.lineTo(tx, ty);
+      if (D < LIMIT - 1) { tips.moveTo(tx + 1.4, ty); tips.arc(tx, ty, 1.4, 0, 6.283); }
+    }
+    if (lb > 0) {
+      const f = lb / L, tx = bx + (ax - bx) * f, ty = by + (ay - by) * f;
+      const p = paths[Math.min(9, Math.floor((db + lb / 2) / SPEED))];
+      p.moveTo(bx, by); p.lineTo(tx, ty);
+      if (D < LIMIT - 1) { tips.moveTo(tx + 1.4, ty); tips.arc(tx, ty, 1.4, 0, 6.283); }
+    }
+  }
+  ctx.save();
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  ctx.globalCompositeOperation = "lighter";
+  for (let b = 0; b < 10; b++) { ctx.strokeStyle = RAMP[b]; ctx.globalAlpha = .13; ctx.lineWidth = 4.5 * z; ctx.stroke(paths[b]); }
+  ctx.globalCompositeOperation = "source-over";
+  for (let b = 0; b < 10; b++) { ctx.strokeStyle = RAMP[b]; ctx.globalAlpha = .95; ctx.lineWidth = 1.1 * z; ctx.stroke(paths[b]); }
+  ctx.globalAlpha = 1; ctx.fillStyle = "#fffbe8"; ctx.fill(tips);
+  ctx.restore();
+}
+
+function drawStation(ctx, st, p, pulse, cam, w, h, z, labelLeft) {
+  if (p <= 0) return;
+  const s = cam.s, x = (st.x - cam.x) * s + w / 2, y = (st.y - cam.y) * s + h / 2;
+  const e = 1 - Math.pow(1 - Math.min(1, p), 3);
+  const back = p < 1 ? 1 + Math.sin(p * Math.PI) * .35 : 1;
+  ctx.save();
+  if (pulse >= 0) {
+    for (let i = 0; i < 2; i++) {
+      const q = (pulse + i / 2) % 1;
+      ctx.beginPath(); ctx.arc(x, y, 6 + q * 34 * Math.min(2, z), 0, 6.283);
+      ctx.strokeStyle = `rgba(255,243,176,${(1 - q) * .55})`; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+  }
+  ctx.beginPath(); ctx.arc(x, y, 7 * e * back, 0, 6.283);
+  ctx.fillStyle = C.ground; ctx.fill();
+  ctx.lineWidth = 2.2; ctx.strokeStyle = "#fff3b0"; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, 2.6 * e, 0, 6.283); ctx.fillStyle = "#fff3b0"; ctx.fill();
+  // label
+  const a = Math.max(0, Math.min(1, (p - .4) / .6));
+  const name = st.name.toUpperCase();
+  const chars = Math.round(name.length * a);
+  ctx.globalAlpha = Math.min(1, a * 2);
+  ctx.font = `800 ${Math.round(17 + z * 3)}px "Big Shoulders Display", sans-serif`;
+  ctx.textBaseline = "alphabetic";
+  ctx.textAlign = labelLeft ? "right" : "left";
+  const dx = labelLeft ? -14 : 14;
+  ctx.lineWidth = 4; ctx.strokeStyle = C.ground; ctx.lineJoin = "round";
+  ctx.strokeText(name.slice(0, chars), x + dx, y - 6);
+  ctx.fillStyle = C.ink; ctx.fillText(name.slice(0, chars), x + dx, y - 6);
+  ctx.font = `500 ${Math.round(9 + z)}px "IBM Plex Mono", monospace`;
+  ctx.fillStyle = "#a9a49a";
+  ctx.strokeText("S+U STATION", x + dx, y + 9 + z);
+  ctx.fillText("S+U STATION", x + dx, y + 9 + z);
+  ctx.restore();
+}
+
+// ---------- timeline
+const T_ST = [300, 1100], T_SPREAD0 = 2300, T_SPREAD = 12000, T_END = T_SPREAD0 + T_SPREAD;
+let t0 = performance.now();
+function timeline(now) {
+  if (reduce) return { st: [1, 1], D: LIMIT, pulse: -1, ring: 1, t: T_END + 2000 };
+  const t = now - t0;
+  const st = T_ST.map(s => Math.max(0, Math.min(1.2, (t - s) / 900)));
+  const sp = Math.max(0, Math.min(1, (t - T_SPREAD0) / T_SPREAD));
+  const D = LIMIT * (sp < 1 ? sp * (1.08 - .08 * sp) : 1); // slight ease-out
+  const pulse = t > 600 && t < T_END ? (t / 1400) % 1 : -1;
+  const ring = Math.max(0, Math.min(1, (t - T_END - 200) / 900));
+  return { st, D: Math.min(LIMIT, D), pulse, ring, t };
+}
+
+function render(v, tl, overlay) {
+  drawBg(v);
+  const ctx = v.ctx, cam = v.cam, w = v.w, h = v.h;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(v.bg, 0, 0);
+  ctx.setTransform(v.dpr, 0, 0, v.dpr, 0, 0);
+  const z = Math.max(1, Math.min(3, cam.s / 0.12));
+  for (const st of M.stations) if (tl.D > 0) drawIso(ctx, st, tl.D, cam, w, h, z);
+  if (tl.ring > 0) {
+    ctx.save(); ctx.setLineDash([4, 5]); ctx.strokeStyle = `rgba(185,180,170,${.7 * tl.ring})`; ctx.lineWidth = 1;
+    for (const st of M.stations) { ctx.beginPath(); ctx.arc((st.x - cam.x) * cam.s + w / 2, (st.y - cam.y) * cam.s + h / 2, LIMIT * cam.s, 0, 6.283); ctx.stroke(); }
+    ctx.restore();
+  }
+  drawStation(ctx, zoo, tl.st[1], tl.pulse, cam, w, h, z, true);
+  drawStation(ctx, alex, tl.st[0], tl.pulse, cam, w, h, z, false);
+  if (overlay) drawOverlay(ctx, w, h, tl);
+}
+
+function fmtClock(D) {
+  const sec = Math.round(D / SPEED * 60);
+  return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+}
+
+// overlay drawn into the recorded video only (on screen it is HTML)
+function drawOverlay(ctx, w, h, tl) {
+  ctx.save();
+  const m = 56;
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillStyle = "#ffc23d"; ctx.font = `500 20px "IBM Plex Mono", monospace`;
+  ctx.fillText("#30DAYMAPCHALLENGE · DAY 7 · 10 MINUTE MAP", m, m);
+  ctx.fillStyle = C.ink; ctx.font = `800 96px "Big Shoulders Display", sans-serif`;
+  ctx.fillText("TEN MINUTES ON FOOT", m, m + 34);
+  ctx.fillStyle = "#c9c5bd"; ctx.font = `400 26px "IBM Plex Sans", sans-serif`;
+  ctx.fillText("Berlin · Alexanderplatz & Zoologischer Garten · real street network, 5 km/h", m, m + 140);
+  ctx.textAlign = "right";
+  ctx.fillStyle = C.ink; ctx.font = `500 120px "IBM Plex Mono", monospace`;
+  ctx.fillText(fmtClock(tl.D), w - m, h - m - 200);
+  ctx.fillStyle = "#8b8f98"; ctx.font = `400 20px "IBM Plex Mono", monospace`;
+  ctx.fillText("MINUTES WALKED", w - m, h - m - 66);
+  ctx.textAlign = "left";
+  const bw = 44;
+  RAMP.forEach((c, i) => { ctx.fillStyle = c; ctx.fillRect(m + i * bw, h - m - 70, bw, 14); });
+  ctx.fillStyle = "#8b8f98"; ctx.font = `400 18px "IBM Plex Mono", monospace`;
+  ctx.fillText("0", m, h - m - 48); ctx.textAlign = "right"; ctx.fillText("10 min", m + 10 * bw, h - m - 48);
+  ctx.textAlign = "left"; ctx.fillStyle = "#6c707a";
+  ctx.fillText("Data © OpenStreetMap contributors (ODbL)", m, h - m - 16);
+  ctx.strokeStyle = "#b9b4aa"; ctx.setLineDash([4, 5]); ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.arc(m + 10, h - m - 108, 10, 0, 6.283); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = "#8b8f98"; ctx.textBaseline = "middle";
+  ctx.fillText("833 m as the crow flies", m + 30, h - m - 108);
+  ctx.textBaseline = "top";
+  if (tl.ring > 0) {
+    ctx.globalAlpha = tl.ring;
+    const items = [[zoo, "ZOO"], [alex, "ALEXANDERPLATZ"]];
+    let x = w / 2 - 260;
+    for (const [st, lab] of items) {
+      ctx.textAlign = "left";
+      ctx.fillStyle = C.ink; ctx.font = `600 64px "Big Shoulders Display", sans-serif`;
+      ctx.fillText(st.km + " km", x, h - m - 150);
+      ctx.fillStyle = "#8b8f98"; ctx.font = `400 17px "IBM Plex Mono", monospace`;
+      ctx.fillText(lab + ": PATHS REACHED", x, h - m - 78);
+      ctx.fillText("FURTHEST POINT " + Math.round(st.far) + " M AWAY", x, h - m - 54);
+      x += 300;
+    }
+  }
+  ctx.restore();
+}
+
+// ---------- screen view + camera
+const screen = { el: document.getElementById("map") };
+let viewName = "both", main, camFrom = null, camTo = null, camT0 = 0;
+function screenPad(w, h) {
+  const narrow = w < 640;
+  return narrow ? { t: 230, b: 200, l: 12, r: 12 } : { t: Math.min(200, h * .26), b: 130, l: 40, r: 40 };
+}
+function setupScreen() {
+  const w = innerWidth, h = innerHeight, dpr = Math.min(2, devicePixelRatio || 1);
+  main = makeView(screen.el, w, h, dpr);
+  main.cam = fit(VIEWS[viewName], w, h, screenPad(w, h));
+  camTo = null;
+}
+addEventListener("resize", setupScreen);
+setupScreen();
+
+function setView(name) {
+  viewName = name;
+  for (const k of ["both", "zoo", "alex"]) document.getElementById("v-" + k).setAttribute("aria-pressed", k === name);
+  camFrom = { ...main.cam }; camTo = fit(VIEWS[name], main.w, main.h, screenPad(main.w, main.h)); camT0 = performance.now();
+}
+for (const k of ["both", "zoo", "alex"]) document.getElementById("v-" + k).onclick = () => setView(k);
+document.getElementById("replay").onclick = () => { t0 = performance.now(); statsShown = false; document.getElementById("stats").style.opacity = 0; };
+
+const clockEl = document.getElementById("clock");
+let statsShown = false;
+function frame(now) {
+  if (camTo) {
+    const k = Math.min(1, (now - camT0) / (reduce ? 1 : 1100)), e = k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    const ls = Math.log(camFrom.s) + (Math.log(camTo.s) - Math.log(camFrom.s)) * e;
+    main.cam = { x: camFrom.x + (camTo.x - camFrom.x) * e, y: camFrom.y + (camTo.y - camFrom.y) * e, s: Math.exp(ls) };
+    if (k >= 1) { main.cam = camTo; camTo = null; }
+  }
+  const tl = timeline(now);
+  render(main, tl, false);
+  clockEl.textContent = fmtClock(tl.D);
+  if (tl.ring > 0 && !statsShown) { statsShown = true; document.getElementById("stats").style.opacity = 1; }
+  if (rec) recFrame(now);
+  requestAnimationFrame(frame);
+}
+document.fonts.ready.then(() => { main.bgKey = ""; });
+requestAnimationFrame(frame);
+
+// ---------- video export (works when the file is opened directly in a browser)
+let rec = null;
+const embedded = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
+const recBtn = document.getElementById("rec");
+if (!embedded && window.MediaRecorder && HTMLCanvasElement.prototype.captureStream) recBtn.hidden = false;
+recBtn.onclick = () => {
+  if (rec) return;
+  const c = document.createElement("canvas");
+  const v = makeView(c, 1920, 1080, 1);
+  v.cam = fit(VIEWS.both, 1920, 1080, { t: 250, b: 150, l: 60, r: 60 });
+  const stream = c.captureStream(30);
+  const mime = ["video/webm;codecs=vp9", "video/webm"].find(m => MediaRecorder.isTypeSupported(m));
+  const mr = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12e6 });
+  const chunks = [];
+  mr.ondataavailable = e => e.data.size && chunks.push(e.data);
+  mr.onstop = () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(chunks, { type: "video/webm" }));
+    a.download = "berlin-10-minute-walk.webm"; a.click();
+    rec = null; recBtn.textContent = "● Save video";
+  };
+  t0 = performance.now(); statsShown = false; document.getElementById("stats").style.opacity = 0;
+  rec = { v, mr }; recBtn.textContent = "Recording…";
+  mr.start();
+};
+function recFrame(now) {
+  const tl = timeline(now);
+  render(rec.v, tl, true);
+  if (tl.t > T_END + 3500 && rec.mr.state === "recording") rec.mr.stop();
+}
+window.__exp = { render, makeView, fit, VIEWS, T_END, tl: ms => { t0 = 0; return timeline(ms); } };
+})();
+</script>
